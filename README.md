@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # FlowDesk Agentic Support System
 
 An agentic AI system that receives customer support queries and attempts to resolve them autonomously. Built for FlowDesk, a fictional SaaS company.
@@ -524,3 +525,7 @@ SQLite has no native JSON column type. Fields like `features` and `limits` are s
 | `AGENT_MAX_TOOL_CALLS` | `10` | Max tool calls per query |
 | `BLOCKED_DOC_SOURCES` | `system-override.md` | Adversarial doc blocklist |
 | `LOG_LEVEL` | `INFO` | Logging level |
+=======
+# agentic-support-system
+An agentic AI system that autonomously resolves customer support queries using LangGraph orchestration and hybrid RAG retrieval. Classifies intent, selects tools dynamically, and decides to auto-resolve or escalate — returning structured responses with citations and confidence scores.
+>>>>>>> 89fa8e5a87f5b1723956601d1207d260889d18d9
