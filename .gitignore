@@ -1,0 +1,51 @@
+# Project data folders
+docs/
+mock-services/
+sample-requests/
+
+# Virtual Environments
+ag_env/
+stremlit_env/
+streamlit_env/
+venv/
+.venv/
+env/
+
+# Environment Variables
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+
+# ChromaDB vector store
+.chroma_store/
+
+# SQLite
+*.db
+*.sqlite3
+
+# Pytest
+.pytest_cache/
+*.pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+*.iml
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Test output
+test_report.json
