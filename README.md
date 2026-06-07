@@ -359,24 +359,39 @@ Every query is classified into one of 9 intents:
 ### Escalation Rules (applied in order)
 
 1. Security threat detected → escalate
-2. Intent is `billing_refund` or `adversarial` → escalate (policy-enforced)
-3. Customer not found → escalate
-4. Account suspended → escalate
-5. No KB results for doc-dependent query → escalate
-6. Confidence below 0.6 → escalate
-7. Otherwise → auto-resolve
+2. Query is too vague to resolve (low intent confidence or very short query) → escalate
+3. Intent is `billing_refund` or `adversarial` → escalate (policy-enforced)
+4. Customer not found → escalate
+5. Account suspended → escalate
+6. No KB results found for doc-dependent query → escalate
+7. Confidence below 0.6 → escalate
+8. Otherwise → auto-resolve
+
+> **Rule 2 — Vague Query Detection** was added to prevent the system from returning generic, misleading answers when a customer's query lacks enough detail to be actionable. GPT-4o-mini returns a confidence score alongside the intent classification. If the intent is `general_question` or `diagnostic_request` AND that confidence is below `0.85`, or the query is 3 words or fewer, the system escalates immediately and asks the customer to provide more details instead of guessing.
 
 ### Confidence Scoring
 
+Confidence is computed purely from evidence — no LLM involved at this stage:
+
 ```
-base score:        0.5
-+ KB results:      up to +0.3 (normalized cross-encoder score)
-+ customer data:   +0.1
-+ diagnostics:     up to +0.05
-+ intent score:    +0.1 × intent_confidence
-─────────────────────────────
-max:               ~1.0
+base score:        0.5   (starting assumption)
++ KB results:      up to +0.30  (cross-encoder rerank score, normalized)
++ customer data:   +0.10  (fixed — customer record successfully fetched)
++ diagnostics:     up to +0.05  (ratio of healthy checks)
++ intent score:    up to +0.10  (GPT's own classification confidence × 0.1)
+──────────────────────────────────────────────
+max:               1.0  (capped)
 ```
+
+The **cross-encoder rerank score** is the most influential factor at 30% weight. It measures how relevant the retrieved KB document actually is to the query. A weak or irrelevant document match means low rerank score, which means lower confidence, which can trigger escalation.
+
+The **auto-resolve threshold** is `0.6` (configurable via `AGENT_MIN_CONFIDENCE`). Any query scoring below this is escalated to a human agent.
+
+When a query **is escalated**, the system skips LLM answer generation entirely and returns a clean escalation message instead. This prevents misleading generic answers from being shown to the customer.
+
+### Minimum Relevance Filtering
+
+Retrieved KB documents are filtered before being passed to the decision node. Any document with a `combined_score` below `0.3` (configurable via `RAG_MIN_RELEVANCE_SCORE`) is discarded. This prevents the system from building confidence on irrelevant documents that happen to be the closest match in a weak search result set.
 
 ---
 
@@ -401,6 +416,9 @@ Query
               │
               ▼
    combined_score = 0.6 × dense + 0.4 × sparse
+              │
+              ▼
+   Minimum relevance filter (combined_score >= 0.3)
               │
               ▼
    Cross-encoder reranking (for complex intents)
@@ -447,14 +465,14 @@ Running `python -m tests.test_e2e` against all 25 example queries:
 
 ```
 Total    : 25
-Passed   : 22 (88.0%)
-Failed   : 3
+Passed   : 23 (92.0%)
+Failed   : 2
 Errors   : 0
 
 By Difficulty:
   EASY   : 5/5  passed
   MEDIUM : 11/12 passed
-  HARD   : 6/8  passed
+  HARD   : 7/8  passed
 
 Minimum required: 15
 Result: ✓ PASSED
@@ -464,9 +482,16 @@ Result: ✓ PASSED
 
 | ID | Reason |
 |----|--------|
-| `q06_webhook_insufficient_info` | Agent provided helpful answer instead of escalating — arguably better behavior |
-| `q18_downgrade_refund` | Query mentions "refund" → classified as `billing_refund` → escalated per policy. Test expected no escalation but policy enforcement is correct |
-| `q20_ambiguous_query` | "It's broken. Fix it." — confidence 0.66 just above 0.6 threshold. Borderline case |
+| `q06_webhook_insufficient_info` | Customer stated the setup guide didn't solve their issue — system still returned a helpful generic answer instead of escalating. The query lacks the "already tried" signal needed to trigger escalation. |
+| `q18_downgrade_refund` | Query asks about refund policy during a downgrade — GPT classifies it as `billing_refund` intent which always escalates per policy. Test expected no escalation but the policy enforcement is intentionally strict. |
+
+### Improvements Made During Development
+
+The following issues were identified through test analysis and fixed:
+
+**Vague Query Escalation** — Queries like "It's broken. Fix it." or "Help me" were previously resolved with generic KB-based answers because ChromaDB and BM25 always return results regardless of relevance. Two fixes were applied: a vague query detection rule in `decision.py` that checks GPT's intent confidence (escalate if `general_question` or `diagnostic_request` with confidence < 0.85 or query ≤ 3 words), and a minimum relevance filter in `retriever.py` that discards KB results with `combined_score < 0.3`. When a query escalates for any reason, `node_generate_answer` now skips LLM generation entirely and returns a clean escalation message.
+
+**Minimum Relevance Threshold Enforcement** — `RAG_MIN_RELEVANCE_SCORE = 0.3` was defined in `config.py` but never applied in `retriever.py`. The retriever previously returned top results regardless of how low their scores were. The filter is now applied after sorting, before returning results.
 
 ---
 
@@ -487,6 +512,14 @@ Dense embeddings capture semantic similarity but miss exact keyword matches (e.g
 ### Why cross-encoder reranking?
 
 Bi-encoder embeddings score query and document independently. Cross-encoder reads them together and scores relevance more accurately — it understands "does this chunk actually answer this specific question?" We apply it selectively only for complex intents to manage latency.
+
+### Why use intent confidence for vague query detection?
+
+Rather than trying to classify "vagueness" as a separate intent, we leverage GPT's own uncertainty signal. When GPT is less than 85% confident about what the customer wants, that uncertainty is itself evidence the query lacks enough detail to resolve automatically. This avoids hardcoding vague phrase lists and lets the classifier's confidence do the work.
+
+### Why skip LLM answer generation for escalated queries?
+
+When the system decides to escalate, generating a GPT answer anyway and showing it alongside the escalation reason creates confusion — the customer sees a detailed answer but also gets told a human is handling it. Skipping generation for all escalated queries ensures the response is always clean and unambiguous.
 
 ### Why store JSON fields as TEXT in SQLite?
 
@@ -516,7 +549,7 @@ SQLite has no native JSON column type. Fields like `features` and `limits` are s
 | `RAG_TOP_K_DENSE` | `5` | Dense retrieval top-k |
 | `RAG_TOP_K_SPARSE` | `5` | BM25 retrieval top-k |
 | `RAG_TOP_K_FINAL` | `3` | Final results after reranking |
-| `RAG_MIN_RELEVANCE_SCORE` | `0.3` | Minimum relevance threshold |
+| `RAG_MIN_RELEVANCE_SCORE` | `0.3` | Minimum relevance threshold (enforced in retriever) |
 | `TOOL_MAX_RETRIES` | `3` | Tool retry attempts |
 | `TOOL_RETRY_BASE_DELAY` | `1.0` | Backoff base delay (seconds) |
 | `TOOL_TIMEOUT_SECONDS` | `10.0` | Per-tool timeout |

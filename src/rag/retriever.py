@@ -138,6 +138,9 @@ def hybrid_search(
     # ── Sort by combined score ────────────────────────────────────
     results.sort(key=lambda x: x["combined_score"], reverse=True)
 
+    # Filter by minimum relevance score
+    results = [r for r in results if r["combined_score"] >= settings.rag_min_relevance_score]
+
     return results[:settings.rag_top_k_final]
 
 

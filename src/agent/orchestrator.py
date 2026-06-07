@@ -276,7 +276,7 @@ async def node_generate_answer(state: AgentState) -> AgentState:
     """Generate final customer-facing answer using GPT."""
     state.add_trace("Generating final response")
 
-    if state.should_escalate and not state.kb_results:
+    if state.should_escalate:
         state.answer = _escalation_message(state)
         state.status = "escalated"
         state.add_trace("Generated escalation response")
@@ -528,6 +528,12 @@ def _intent_to_team(intent: str) -> str:
 
 
 def _escalation_message(state: AgentState) -> str:
+    if "too vague" in (state.escalation_reason or ""):
+        return (
+            "Your query doesn't have enough detail for us to assist you automatically. "
+            f"A support ticket ({state.ticket_id}) has been created. "
+            "Please provide more details about your issue and our team will contact you shortly."
+        )
     if state.intent == "billing_refund":
         return (
             "Refund requests must be reviewed and processed by our billing team. "

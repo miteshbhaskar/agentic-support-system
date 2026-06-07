@@ -16,6 +16,7 @@ ALWAYS_ESCALATE_INTENTS = {"billing_refund", "adversarial"}
 # Minimum KB results needed to attempt auto-resolution
 MIN_KB_RESULTS = 1
 
+VAGUE_INTENTS = {"general_question", "diagnostic_request"}
 
 def evaluate(state: AgentState) -> AgentState:
     """
@@ -41,6 +42,14 @@ def evaluate(state: AgentState) -> AgentState:
         state.escalation_reason = "Security threat detected in query"
         state.confidence = 0.0
         state.add_trace("Decision: escalate — security threat detected")
+        return state
+
+    # Add this as Rule 1.5 — after security check, before always-escalate
+    if state.intent in VAGUE_INTENTS and (state.intent_confidence < 0.85 or len(state.query.split()) <= 3):
+        state.should_escalate = True
+        state.escalation_reason = "Query is too vague to resolve automatically. Please provide more details."
+        state.confidence = 0.0
+        state.add_trace("Decision: escalate — query too vague")
         return state
 
     # Rule 2 — Always-escalate intents
@@ -82,6 +91,7 @@ def evaluate(state: AgentState) -> AgentState:
         state.confidence = 0.2
         state.add_trace("Decision: escalate — no KB results found")
         return state
+
 
     # Rule 6 — Active incident (inform, don't escalate unless no KB)
     if state.incidents:
