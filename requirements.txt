@@ -48,6 +48,3 @@ langchain-chroma==0.1.4
 
 # LangGraph
 langgraph==0.2.50 
-
-
-streamlit
