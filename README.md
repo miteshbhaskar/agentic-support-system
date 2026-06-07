@@ -1,4 +1,4 @@
-# FlowDesk Agentic Support System
+# Agentic Support System
 
 An agentic AI system that receives customer support queries and attempts to resolve them autonomously. Built for FlowDesk, a fictional SaaS company.
 
